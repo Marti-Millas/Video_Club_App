@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+
+# Variables d'entorn (MOLT IMPORTANT no pujar el .env)
+.env
+
+# Bases de dades locals
+*.db
+*.sqlite3
+
+# IDEs
+.vscode/
+.idea/
+
+# Notebooks
+.ipynb_checkpoints

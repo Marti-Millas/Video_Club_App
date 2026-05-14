@@ -1,0 +1,12 @@
+[project]
+name = "pac-app-videoclub"
+version = "0.1.0"
+description = "Gestió d'un videoclub amb Python i SQL"
+authors = [{ name = "Martí Millàs" }]
+dependencies = [
+    "sqlalchemy", # Per connectar amb la base de dades
+    "pandas",     # Molt útil per visualitzar dades als Notebooks
+    "ipykernel",
+    "python-dotenv",
+    "psycopg2-binary"
+]
