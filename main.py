@@ -6,8 +6,8 @@ from rich.panel import Panel
 from rich.prompt import Prompt
 
 # Importem la Unit of Work i els models del nostre projecte
-from src.domain.unit_of_work import SqlAlchemyUnitOfWork
-from src.domain.models import Platform, Game, UserAccount, UserProfile, Tag, Review
+from server.domain.unit_of_work import SqlAlchemyUnitOfWork
+from server.domain.models import Platform, Game, UserAccount, UserProfile, Tag, Review
 
 # Inicialitzem les eines de Rich i la Unit of Work per connectar a Aiven
 console = Console()
