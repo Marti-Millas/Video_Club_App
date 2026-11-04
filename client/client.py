@@ -1,88 +1,99 @@
-import socket
+import asyncio
 import json
 
 HOST = '127.0.0.1'
 PORT = 65432
 
-def send_request(action, data=None):
-    """Funció per enviar una petició JSON al servidor i esperar resposta"""
-    request_dict = {
+async def send_request(action, data=None):
+    """Funció asíncrona per comunicar-se amb el servidor"""
+    if data is None:
+        data = {}
+        
+    request = {
         "action": action,
-        "data": data or {}
+        "data": data
     }
     
-    # Convertim a JSON i després a bytes
-    request_bytes = json.dumps(request_dict).encode('utf-8')
-    
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        try:
-            s.connect((HOST, PORT))
-            s.sendall(request_bytes)
-            
-            # Esperem la resposta del servidor
-            response_bytes = s.recv(1024)
-            response_str = response_bytes.decode('utf-8')
-            
-            # Transformem el string JSON a diccionari Python i el retornem
-            return json.loads(response_str)
-            
-        except ConnectionRefusedError:
-            print("Error: No es pot connectar al servidor. Està en marxa?")
-            return None
-        except Exception as e:
-            print(f"Error de connexió: {e}")
-            return None
+    try:
+        # Obrim la connexió asíncrona en lloc del socket bloquejant
+        reader, writer = await asyncio.open_connection(HOST, PORT)
+        
+        # Convertim a JSON i enviem per la xarxa
+        request_bytes = json.dumps(request).encode('utf-8')
+        writer.write(request_bytes)
+        await writer.drain() # Ens assegurem que surt tot pel cable
+        
+        # Esperem la resposta del servidor
+        response_bytes = await reader.read(1024)
+        response_str = response_bytes.decode('utf-8')
+        response_dict = json.loads(response_str)
+        
+        # Tanquem la connexió de manera neta
+        writer.close()
+        await writer.wait_closed()
+        
+        return response_dict
+        
+    except ConnectionRefusedError:
+        print("\n[!] Error: No s'ha pogut connectar. Està el servidor obert?")
+        return None
+    except Exception as e:
+        print(f"\n[!] Error de xarxa: {e}")
+        return None
 
-def main():
-    print("--- Client Video Club ---")
+async def main():
+    """Bucle principal asíncron del client"""
     while True:
-        print("\nOpcions:")
-        print("1. Provar connexió ")
-        print("2. Veure tots els jocs ")
-        print("3. Afegir un joc ")
-        print("4. Esborrar un joc ")
-        print("5. Afegir una plataforma (Necessari abans de crear un joc)")
-        print("0. Sortir")
+        print("\n=== VIDEOCLUB (ASYNC TCP) ===")
+        print("1. Crear Plataforma")
+        print("2. Crear Joc")
+        print("3. Llistar Jocs")
+        print("4. Sortir")
         
-        opcio = input("Tria una opció: ")
+        opcio = input("\nTria una opció: ")
         
-        if opcio == '1':
-            resposta = send_request("ping", {"missatge": "Hola servidor!"})
-            print("\nResposta del servidor:", json.dumps(resposta, indent=2))
-            
-        elif opcio == '2':
-            resposta = send_request("list_games") 
+        if opcio == "1":
+            nom = input("Nom de la plataforma (ex: PS5): ")
+            resposta = await send_request("create_platform", {"name": nom})
             if resposta and resposta.get("status") == "success":
-                print("\n--- LLISTA DE JOCS ---")
-                for game in resposta.get("data", []):
-                    print(f"- ID: {game.get('id')} | Títol: {game.get('title')} | Preu: {game.get('price')}€")
+                print(f"[+] Plataforma creada correctament.")
             else:
-                print(f"\nError: {resposta.get('message')}")
+                print(f"[-] Error: {resposta.get('message') if resposta else 'Desconegut'}")
                 
-        elif opcio == '3':
-            titol = input("Títol del joc: ")
-            preu = float(input("Preu: "))
-            platform = int(input("ID de la Plataforma (ex: 1): "))
-            
-            # Enviem l'acció amb les dades
-            resposta = send_request("create_game", {"title": titol, "price": preu, "platform_id": platform})
-            print("\nResposta del servidor:", resposta.get('message'))
-            
-        elif opcio == '4':
-            id_joc = int(input("Introdueix l'ID del joc a esborrar: "))
-            resposta = send_request("delete_game", {"game_id": id_joc})
-            print("\nResposta del servidor:", resposta.get('message'))
-
-        elif opcio == '5':
-            nom = input("Nom de la plataforma (ex: PlayStation 5): ")
-            resposta = send_request("create_platform", {"name": nom})
-            print("\nResposta del servidor:", resposta.get('message'))
-            
-        elif opcio == '0':
-            print("Adéu!")
+        elif opcio == "2":
+            try:
+                titol = input("Títol del joc: ")
+                preu = float(input("Preu: "))
+                plat_id = int(input("ID de la plataforma: "))
+                
+                dades = {"title": titol, "price": preu, "platform_id": plat_id}
+                resposta = await send_request("create_game", dades)
+                
+                if resposta and resposta.get("status") == "success":
+                    print("[+] Joc creat correctament!")
+                else:
+                    print(f"[-] Error: {resposta.get('message') if resposta else 'Desconegut'}")
+            except ValueError:
+                print("[!] Error: El preu i l'ID han de ser números.")
+                
+        elif opcio == "3":
+            resposta = await send_request("list_games")
+            if resposta and resposta.get("status") == "success":
+                jocs = resposta.get("data", [])
+                print(f"\n--- LLISTA DE JOCS ({len(jocs)}) ---")
+                for joc in jocs:
+                    print(f"ID: {joc.get('id')} | {joc.get('title')} | Preu: {joc.get('price')}€")
+            else:
+                print("[-] No s'han pogut carregar els jocs.")
+                
+        elif opcio == "4":
+            print("Sortint de l'aplicació...")
             break
         else:
-            print("Opció incorrecta.")
+            print("Opció incorrecta, torna-ho a provar.")
 
 if __name__ == "__main__":
-    main()
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\nClient tancat manualment.")

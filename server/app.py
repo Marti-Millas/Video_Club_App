@@ -1,4 +1,4 @@
-import socket
+import asyncio
 import json
 import logging
 from server.router import route_request
@@ -6,19 +6,21 @@ from server.router import route_request
 # Configuració per veure missatges a la terminal
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-HOST = '127.0.0.1'  # Localhost
-PORT = 65432        # Port on escoltarà el servidor
+HOST = '127.0.0.1'
+PORT = 65432
 
-def handle_request(request_data):
+async def handle_request(request_data):
     try:
         request = json.loads(request_data)
-        logging.info(f"Petició rebuda: {request}")
+        logging.info(f"Petició rebuda: {request['action']}")
         
         action = request.get('action')
         data = request.get('data', {})
         
-        # Deleguem al router que acabem de fer!
-        response = route_request(action, data)
+        # EL REPTE OPCIONAL DE LA PAC: 
+        # Enviem la petició de la base de dades síncrona a un fil secundari 
+        # perquè no bloquegi els altres clients.
+        response = await asyncio.to_thread(route_request, action, data)
         return response
         
     except json.JSONDecodeError:
@@ -26,34 +28,48 @@ def handle_request(request_data):
     except Exception as e:
         return {"status": "error", "message": f"Error del servidor: {str(e)}", "data": None}
 
-def start_server():
-    """Inicia el servidor TCP"""
-    # Creem un socket IPv4 i TCP 
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind((HOST, PORT))
-        s.listen() # Comencem a escoltar connexions
-        logging.info(f"Servidor escoltant a {HOST}:{PORT}...")
-
+async def handle_client(reader, writer):
+    """Funció que gestiona el cicle de vida d'un client de manera asíncrona"""
+    addr = writer.get_extra_info('peername')
+    logging.info(f"Connectat amb {addr}")
+    
+    try:
         while True:
-            # Esperem que es connecti un client (bloquejant)
-            conn, addr = s.accept()
-            with conn:
-                logging.info(f"Connectat amb {addr}")
-                
-                # Llegim les dades que envia el client (màxim 1024 bytes de moment)
-                data = conn.recv(1024)
-                if not data:
-                    break # Si no hi ha dades, el client ha tancat
-                
-                # Descodifiquem de bytes a string i processem
-                request_str = data.decode('utf-8')
-                
-                # Cridem al router per processar-ho
-                response_dict = handle_request(request_str)
-                
-                # Convertim el diccionari de resposta a JSON i després a bytes per enviar
-                response_bytes = json.dumps(response_dict).encode('utf-8')
-                conn.sendall(response_bytes)
+            # Llegim les dades de forma asíncrona (no bloquejant)
+            data = await reader.read(1024)
+            if not data:
+                break # Si no hi ha dades, el client ha tancat amigablement
+            
+            request_str = data.decode('utf-8')
+            response_dict = await handle_request(request_str)
+            
+            # Responem
+            response_bytes = json.dumps(response_dict).encode('utf-8')
+            writer.write(response_bytes)
+            await writer.drain() # Ens assegurem que s'ha enviat tot
+            
+    except ConnectionResetError:
+        logging.warning(f"El client {addr} s'ha desconnectat de cop.")
+    except Exception as e:
+        logging.error(f"Error inesperat amb el client {addr}: {e}")
+    finally:
+        # Prevenim fuites de memòria (Resource leaks) tancant bé la connexió
+        logging.info(f"Tancant connexió amb {addr}")
+        writer.close()
+        await writer.wait_closed()
+
+async def start_server():
+    """Inicia el servidor TCP Asíncron"""
+    server = await asyncio.start_server(handle_client, HOST, PORT)
+    
+    addrs = ', '.join(str(sock.getsockname()) for sock in server.sockets)
+    logging.info(f"Servidor AsyncIO escoltant a {addrs}...")
+
+    async with server:
+        await server.serve_forever()
 
 if __name__ == "__main__":
-    start_server()
+    try:
+        asyncio.run(start_server())
+    except KeyboardInterrupt:
+        logging.info("Servidor apagat manualment.")
