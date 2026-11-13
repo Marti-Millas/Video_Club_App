@@ -1,54 +1,45 @@
 import asyncio
 import json
+from typing import Optional, Dict, Any
+from rich.console import Console
+from rich.table import Table
 
+console = Console()
 HOST = '127.0.0.1'
 PORT = 65432
 
-async def send_request(action, data=None):
-    """Funció asíncrona per comunicar-se amb el servidor"""
+async def send_request(action: str, data: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
     if data is None:
         data = {}
-        
-    request = {
-        "action": action,
-        "data": data
-    }
-    
+    request = {"action": action, "data": data}
     try:
-        # Obrim la connexió asíncrona en lloc del socket bloquejant
         reader, writer = await asyncio.open_connection(HOST, PORT)
-        
-        # Convertim a JSON i enviem per la xarxa
         request_bytes = json.dumps(request).encode('utf-8')
         writer.write(request_bytes)
-        await writer.drain() # Ens assegurem que surt tot pel cable
+        await writer.drain()
         
-        # Esperem la resposta del servidor
         response_bytes = await reader.read(1024)
-        response_str = response_bytes.decode('utf-8')
-        response_dict = json.loads(response_str)
-        
-        # Tanquem la connexió de manera neta
         writer.close()
         await writer.wait_closed()
         
-        return response_dict
-        
+        return json.loads(response_bytes.decode('utf-8'))
     except ConnectionRefusedError:
-        print("\n[!] Error: No s'ha pogut connectar. Està el servidor obert?")
+        console.print("\n[bold red][!] Error: No s'ha pogut connectar al servidor.[/bold red]")
         return None
     except Exception as e:
-        print(f"\n[!] Error de xarxa: {e}")
+        console.print(f"\n[bold red][!] Error de xarxa: {e}[/bold red]")
         return None
 
-async def main():
-    """Bucle principal asíncron del client"""
+async def main() -> None:
     while True:
-        print("\n=== VIDEOCLUB (ASYNC TCP) ===")
+        console.print("\n[bold cyan]=== VIDEOCLUB (ASYNC TCP) ===[/bold cyan]")
         print("1. Crear Plataforma")
-        print("2. Crear Joc")
-        print("3. Llistar Jocs")
-        print("4. Sortir")
+        print("2. Llistar Plataformes")
+        print("3. Esborrar Plataforma")
+        print("4. Crear Joc")
+        print("5. Llistar Jocs")
+        print("6. Esborrar Joc")
+        print("7. Sortir")
         
         opcio = input("\nTria una opció: ")
         
@@ -56,44 +47,79 @@ async def main():
             nom = input("Nom de la plataforma (ex: PS5): ")
             resposta = await send_request("create_platform", {"name": nom})
             if resposta and resposta.get("status") == "success":
-                print(f"[+] Plataforma creada correctament.")
+                console.print("[bold green][+] Plataforma creada correctament.[/bold green]")
             else:
-                print(f"[-] Error: {resposta.get('message') if resposta else 'Desconegut'}")
+                console.print(f"[bold red][-] Error: {resposta.get('message')}[/bold red]")
                 
         elif opcio == "2":
+            resposta = await send_request("list_platforms")
+            if resposta and resposta.get("status") == "success":
+                plats = resposta.get("data", [])
+                taula = Table(title="Llista de Plataformes")
+                taula.add_column("ID", style="cyan")
+                taula.add_column("Nom", style="green")
+                for p in plats:
+                    taula.add_row(str(p.get('id')), str(p.get('name')))
+                console.print(taula)
+            else:
+                console.print("[bold red][-] Error carregant plataformes.[/bold red]")
+                
+        elif opcio == "3":
+            try:
+                id_plat = int(input("ID de la plataforma a esborrar: "))
+                resposta = await send_request("delete_platform", {"platform_id": id_plat})
+                if resposta and resposta.get("status") == "success":
+                    console.print("[bold green][+] Plataforma esborrada![/bold green]")
+                else:
+                    console.print(f"[bold red][-] Error: {resposta.get('message')}[/bold red]")
+            except ValueError:
+                console.print("[bold yellow][!] L'ID ha de ser un número.[/bold yellow]")
+
+        elif opcio == "4":
             try:
                 titol = input("Títol del joc: ")
                 preu = float(input("Preu: "))
                 plat_id = int(input("ID de la plataforma: "))
-                
-                dades = {"title": titol, "price": preu, "platform_id": plat_id}
-                resposta = await send_request("create_game", dades)
-                
+                resposta = await send_request("create_game", {"title": titol, "price": preu, "platform_id": plat_id})
                 if resposta and resposta.get("status") == "success":
-                    print("[+] Joc creat correctament!")
+                    console.print("[bold green][+] Joc creat correctament![/bold green]")
                 else:
-                    print(f"[-] Error: {resposta.get('message') if resposta else 'Desconegut'}")
+                    console.print(f"[bold red][-] Error: {resposta.get('message')}[/bold red]")
             except ValueError:
-                print("[!] Error: El preu i l'ID han de ser números.")
+                console.print("[bold yellow][!] El preu i l'ID han de ser números.[/bold yellow]")
                 
-        elif opcio == "3":
+        elif opcio == "5":
             resposta = await send_request("list_games")
             if resposta and resposta.get("status") == "success":
                 jocs = resposta.get("data", [])
-                print(f"\n--- LLISTA DE JOCS ({len(jocs)}) ---")
+                taula = Table(title="Llista de Jocs")
+                taula.add_column("ID", style="cyan")
+                taula.add_column("Títol", style="white")
+                taula.add_column("Preu", style="green")
+                taula.add_column("ID Plat.", style="yellow")
                 for joc in jocs:
-                    print(f"ID: {joc.get('id')} | {joc.get('title')} | Preu: {joc.get('price')}€")
+                    taula.add_row(str(joc.get('id')), str(joc.get('title')), f"{joc.get('price')}€", str(joc.get('platform_id')))
+                console.print(taula)
             else:
-                print("[-] No s'han pogut carregar els jocs.")
+                console.print("[bold red][-] Error carregant jocs.[/bold red]")
                 
-        elif opcio == "4":
-            print("Sortint de l'aplicació...")
+        elif opcio == "6":
+            try:
+                id_joc = int(input("ID del joc a esborrar: "))
+                resposta = await send_request("delete_game", {"game_id": id_joc})
+                if resposta and resposta.get("status") == "success":
+                    console.print("[bold green][+] Joc esborrat correctament![/bold green]")
+                else:
+                    console.print(f"[bold red][-] Error: {resposta.get('message')}[/bold red]")
+            except ValueError:
+                console.print("[bold yellow][!] L'ID ha de ser un número.[/bold yellow]")
+                
+        elif opcio == "7":
+            print("Sortint...")
             break
-        else:
-            print("Opció incorrecta, torna-ho a provar.")
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("\nClient tancat manualment.")
+        pass

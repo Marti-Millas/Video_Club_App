@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+from typing import Dict, Any
 from server.router import route_request
 
 # Configuració per veure missatges a la terminal
@@ -9,7 +10,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 HOST = '127.0.0.1'
 PORT = 65432
 
-async def handle_request(request_data):
+async def handle_request(request_data: str) -> Dict[str, Any]:
     try:
         request = json.loads(request_data)
         logging.info(f"Petició rebuda: {request['action']}")
@@ -28,7 +29,7 @@ async def handle_request(request_data):
     except Exception as e:
         return {"status": "error", "message": f"Error del servidor: {str(e)}", "data": None}
 
-async def handle_client(reader, writer):
+async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
     """Funció que gestiona el cicle de vida d'un client de manera asíncrona"""
     addr = writer.get_extra_info('peername')
     logging.info(f"Connectat amb {addr}")
@@ -58,7 +59,7 @@ async def handle_client(reader, writer):
         writer.close()
         await writer.wait_closed()
 
-async def start_server():
+async def start_server() -> None:
     """Inicia el servidor TCP Asíncron"""
     server = await asyncio.start_server(handle_client, HOST, PORT)
     

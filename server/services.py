@@ -38,13 +38,16 @@ def get_all_games():
         return [model_to_dict(game) for game in games_db]
 
 def create_game(title, price, platform_id):
-    """Servei per crear un nou joc"""
+    """Servei per crear un nou joc validant la plataforma"""
     uow = SqlAlchemyUnitOfWork()
     with uow:
+        # Comprovem si la plataforma existeix abans de crear el joc
+        if not uow.platforms.get(platform_id):
+            raise ValueError(f"La plataforma amb ID {platform_id} no existeix.")
+            
         nou_joc = Game(title=title, price=price, platform_id=platform_id)
         uow.games.add(nou_joc)
-        uow.commit() # Guardem els canvis a la BD
-        # Tornem el joc creat com a diccionari
+        uow.commit() 
         return model_to_dict(nou_joc)
 
 def delete_game(game_id):
@@ -66,3 +69,25 @@ def create_platform(name):
         uow.platforms.add(nova_plataforma)
         uow.commit()
         return model_to_dict(nova_plataforma)
+
+def get_all_platforms():
+    """Servei per obtenir totes les plataformes"""
+    uow = SqlAlchemyUnitOfWork()
+    with uow:
+        plats_db = uow.platforms.list()
+        return [model_to_dict(p) for p in plats_db]
+
+def delete_platform(platform_id):
+    """Servei per esborrar una plataforma amb protecció d'orfenesa"""
+    uow = SqlAlchemyUnitOfWork()
+    with uow:
+        plat = uow.platforms.get(platform_id)
+        if plat:
+            # Comprovem si té jocs lligats abans d'esborrar (com feies a la PAC 1)
+            if plat.games:
+                raise ValueError("No es pot esborrar aquesta plataforma perquè té jocs lligats a ella. Elimina primer els seus jocs.")
+                
+            uow.platforms.delete(plat)
+            uow.commit()
+            return True
+        return False

@@ -1,5 +1,5 @@
 import logging
-from server.services import get_all_games, create_game, delete_game, create_platform
+from server.services import get_all_games, create_game, delete_game, create_platform, get_all_platforms, delete_platform
 
 def route_request(action, data):
     """
@@ -15,7 +15,15 @@ def route_request(action, data):
         except Exception as e:
             logging.error(f"Error a list_games: {e}")
             return {"status": "error", "message": f"Error intern de BD: {str(e)}", "data": None}
-            
+
+    elif action == "list_platforms":
+        try:
+            plats_list = get_all_platforms()
+            return {"status": "success", "message": "Llista de plataformes obtinguda", "data": plats_list}
+        except Exception as e:
+            return {"status": "error", "message": f"Error intern de BD: {str(e)}", "data": None}        
+    
+    
     elif action == "create_game":
         try:
             # Agafem les dades del diccionari 'data'
@@ -46,7 +54,16 @@ def route_request(action, data):
             return {"status": "success", "message": "Plataforma creada", "data": nova_plat}
         except Exception as e:
             return {"status": "error", "message": f"Error creant plataforma: {str(e)}", "data": None}
-        
+
+    elif action == "delete_platform":
+        try:
+            esborrat = delete_platform(data.get('platform_id'))
+            if esborrat:
+                return {"status": "success", "message": "Plataforma esborrada", "data": None}
+            else:
+                return {"status": "error", "message": "Plataforma no trobada", "data": None}
+        except Exception as e:
+            return {"status": "error", "message": f"Error esborrant: {str(e)}", "data": None}
     
     else:
         return {"status": "error", "message": f"Acció '{action}' no implementada", "data": None}
