@@ -1,6 +1,6 @@
 # Protocol de Comunicació Client/Servidor TCP
 
-Aquest projecte utilitza un protocol personalitzat basat en **JSON sobre TCP** per a la comunicació entre el client i el servidor. L'arquitectura utilitza sockets bloquejants estàndard de Python.
+Aquest projecte utilitza un protocol personalitzat basat en **JSON sobre TCP** per a la comunicació entre el client i el servidor. L'arquitectura utilitza sockets asíncrons i no bloquejants mitjançant la llibreria AsyncIO de Python.
 
 ## 1. Estructura de la Petició (Request)
 El client envia les peticions en format JSON codificat en `utf-8`. L'estructura estàndard conté el nom de l'acció i un diccionari amb les dades necessàries:
