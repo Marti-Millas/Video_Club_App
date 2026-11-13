@@ -1,70 +1,88 @@
 import asyncio
 import json
 import logging
+import ssl
+import hashlib
 from typing import Dict, Any
 from server.router import route_request
 
-# Configuració per veure missatges a la terminal
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 HOST = '127.0.0.1'
 PORT = 65432
 
-async def handle_request(request_data: str) -> Dict[str, Any]:
-    try:
-        request = json.loads(request_data)
-        logging.info(f"Petició rebuda: {request['action']}")
-        
-        action = request.get('action')
-        data = request.get('data', {})
-        
-        # EL REPTE OPCIONAL DE LA PAC: 
-        # Enviem la petició de la base de dades síncrona a un fil secundari 
-        # perquè no bloquegi els altres clients.
-        response = await asyncio.to_thread(route_request, action, data)
-        return response
-        
-    except json.JSONDecodeError:
-        return {"status": "error", "message": "Format de petició invàlid (no és JSON)", "data": None}
-    except Exception as e:
-        return {"status": "error", "message": f"Error del servidor: {str(e)}", "data": None}
+def get_ssl_context():
+    """Configura el context SSL per requerir certificats de client (mTLS)"""
+    context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+    context.load_cert_chain(certfile="certs/server_cert.pem", keyfile="certs/server_key.pem")
+    context.load_verify_locations(cafile="certs/CA_cert.pem")
+    context.verify_mode = ssl.CERT_REQUIRED
+    return context
 
 async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
-    """Funció que gestiona el cicle de vida d'un client de manera asíncrona"""
     addr = writer.get_extra_info('peername')
-    logging.info(f"Connectat amb {addr}")
+    
+    # Obtenim el nom del client des del seu certificat
+    peercert = writer.get_extra_info('peercert')
+    client_name = "Desconegut"
+    if peercert:
+        for sub in peercert.get('subject', ()):
+            for key, value in sub:
+                if key == 'commonName':
+                    client_name = value
+                    
+    logging.info(f"Connexió TLS establerta amb {addr} (Certificat: {client_name})")
     
     try:
         while True:
-            # Llegim les dades de forma asíncrona (no bloquejant)
-            data = await reader.read(1024)
-            if not data:
-                break # Si no hi ha dades, el client ha tancat amigablement
+            # 1. Llegim l'encapçalament amb la mida i el hash
+            header_bytes = await reader.readuntil(b'\n')
+            if not header_bytes:
+                break 
             
-            request_str = data.decode('utf-8')
-            response_dict = await handle_request(request_str)
+            header = json.loads(header_bytes.decode('utf-8'))
+            body_length = header.get("length", 0)
+            expected_hash = header.get("sha256")
             
-            # Responem
-            response_bytes = json.dumps(response_dict).encode('utf-8')
-            writer.write(response_bytes)
-            await writer.drain() # Ens assegurem que s'ha enviat tot
+            # 2. Llegim exactament els bytes del cos
+            body_bytes = await reader.readexactly(body_length)
             
-    except ConnectionResetError:
-        logging.warning(f"El client {addr} s'ha desconnectat de cop.")
+            # 3. VERIFICACIÓ D'INTEGRITAT SHA-256
+            actual_hash = hashlib.sha256(body_bytes).hexdigest()
+            if actual_hash != expected_hash:
+                logging.error(f"Error d'integritat: SHA-256 invàlid de {client_name}")
+                response_dict = {"status": "error", "message": "Integritat compromesa (SHA256)"}
+            else:
+                request_str = body_bytes.decode('utf-8')
+                request = json.loads(request_str)
+                logging.info(f"Petició íntegra rebuda: {request.get('action')}")
+                
+                # Processem la petició en un fil secundari
+                response_dict = await asyncio.to_thread(route_request, request.get('action'), request.get('data', {}))
+            
+            # 4. Construïm i enviem la resposta segura
+            res_body_bytes = json.dumps(response_dict).encode('utf-8')
+            res_hash = hashlib.sha256(res_body_bytes).hexdigest()
+            res_header = json.dumps({"length": len(res_body_bytes), "sha256": res_hash}).encode('utf-8') + b'\n'
+            
+            writer.write(res_header + res_body_bytes)
+            await writer.drain()
+            
+    except asyncio.IncompleteReadError:
+        logging.warning(f"El client {client_name} ha tancat la connexió abruptament.")
     except Exception as e:
-        logging.error(f"Error inesperat amb el client {addr}: {e}")
+        logging.error(f"Error inesperat amb el client {client_name}: {e}")
     finally:
-        # Prevenim fuites de memòria (Resource leaks) tancant bé la connexió
-        logging.info(f"Tancant connexió amb {addr}")
+        logging.info(f"Tancant connexió amb {client_name}")
         writer.close()
         await writer.wait_closed()
 
 async def start_server() -> None:
-    """Inicia el servidor TCP Asíncron"""
-    server = await asyncio.start_server(handle_client, HOST, PORT)
+    ssl_context = get_ssl_context()
+    server = await asyncio.start_server(handle_client, HOST, PORT, ssl=ssl_context)
     
     addrs = ', '.join(str(sock.getsockname()) for sock in server.sockets)
-    logging.info(f"Servidor AsyncIO escoltant a {addrs}...")
+    logging.info(f"Servidor AsyncIO (TLS) escoltant a {addrs}...")
 
     async with server:
         await server.serve_forever()
