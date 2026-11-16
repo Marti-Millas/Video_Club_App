@@ -3,13 +3,15 @@ from server.services import get_all_games, create_game, delete_game, create_plat
 
 def route_request(action, data):
     """
-    Router principal. Decideix quin servei executar en funció de l'action.
+    Router principal. Patró de disseny 'Front Controller'. 
+    Decideix quin servei executar en funció del text de l'action.
     """
     if action == "ping":
         return {"status": "success", "message": "Pong! Comunicació correcta.", "data": data}
     
     elif action == "list_games":
         try:
+            # Crida a la capa de Serveis, que és qui sap parlar amb la Base de Dades
             games_list = get_all_games()
             return {"status": "success", "message": "Llista de jocs obtinguda", "data": games_list}
         except Exception as e:
@@ -18,7 +20,7 @@ def route_request(action, data):
             
     elif action == "create_game":
         try:
-            # Agafem les dades del diccionari 'data'
+            # Agafem les dades del diccionari 'data' que ha enviat el client
             nou_joc = create_game(
                 title=data.get('title'),
                 price=data.get('price'),
@@ -29,6 +31,7 @@ def route_request(action, data):
             logging.error(f"Error a create_game: {e}")
             return {"status": "error", "message": f"No s'ha pogut crear: {str(e)}", "data": None}
             
+    # ... (les altres accions fan exactament el mateix patró)
     elif action == "delete_game":
         try:
             esborrat = delete_game(data.get('game_id'))
@@ -46,7 +49,6 @@ def route_request(action, data):
             return {"status": "success", "message": "Plataforma creada", "data": nova_plat}
         except Exception as e:
             return {"status": "error", "message": f"Error creant plataforma: {str(e)}", "data": None}
-        
-    
     else:
+        # Si arriba una action que no reconeixem, rebutgem netament
         return {"status": "error", "message": f"Acció '{action}' no implementada", "data": None}
