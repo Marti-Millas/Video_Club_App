@@ -3,21 +3,24 @@ import json
 import logging
 from server.router import route_request
 
-# Configuració per veure missatges a la terminal
+# Configurem el registre (log) per veure a la terminal què passa sense fer servir simples 'print'
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-HOST = '127.0.0.1'  # Localhost
-PORT = 65432        # Port on escoltarà el servidor
+HOST = '127.0.0.1'  # Localhost: El servidor només escolta connexions d'aquest mateix ordinador
+PORT = 65432        # Port on escoltarà el servidor (ha de ser > 1024 per no requerir permisos d'administrador)
 
 def handle_request(request_data):
+    """S'encarrega de transformar el text pla a JSON i extreure'n l'acció i les dades."""
     try:
+        # 1. Converteix l'string rebut en un diccionari de Python
         request = json.loads(request_data)
         logging.info(f"Petició rebuda: {request}")
         
+        # 2. Extreu el nom de l'acció i els paràmetres
         action = request.get('action')
         data = request.get('data', {})
         
-        # Deleguem al router que acabem de fer!
+        # 3. CRIDA AL ROUTER: No processa res, només ho passa a la següent capa
         response = route_request(action, data)
         return response
         
@@ -27,31 +30,36 @@ def handle_request(request_data):
         return {"status": "error", "message": f"Error del servidor: {str(e)}", "data": None}
 
 def start_server():
-    """Inicia el servidor TCP"""
-    # Creem un socket IPv4 i TCP 
+    """Inicia el servidor TCP clàssic (síncron)"""
+    # socket.AF_INET = Especifica que farem servir adreces IPv4
+    # socket.SOCK_STREAM = Especifica que el protocol serà TCP (orientat a connexió i fiable)
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        
+        # Vinculem el socket a la IP i Port especificats
         s.bind((HOST, PORT))
-        s.listen() # Comencem a escoltar connexions
+        
+        # Posem el socket en mode escolta (esperant trucades)
+        s.listen() 
         logging.info(f"Servidor escoltant a {HOST}:{PORT}...")
 
         while True:
-            # Esperem que es connecti un client (bloquejant)
+            # .accept() BLOQUEJA el programa fins que un client es connecta
             conn, addr = s.accept()
             with conn:
                 logging.info(f"Connectat amb {addr}")
                 
-                # Llegim les dades que envia el client (màxim 1024 bytes de moment)
+                # Llegim les dades que envia el client (en paquets de màxim 1024 bytes)
                 data = conn.recv(1024)
                 if not data:
-                    break # Si no hi ha dades, el client ha tancat
+                    break # Si data està buit, el client ha tancat la connexió
                 
-                # Descodifiquem de bytes a string i processem
+                # DECODIFICACIÓ: Passem de Bytes (zeros i uns de la xarxa) a text (String UTF-8)
                 request_str = data.decode('utf-8')
                 
-                # Cridem al router per processar-ho
+                # Processem la petició a la funció de dalt
                 response_dict = handle_request(request_str)
                 
-                # Convertim el diccionari de resposta a JSON i després a bytes per enviar
+                # CODIFICACIÓ: Transformem el diccionari Python a JSON, i de JSON a Bytes per enviar per la xarxa
                 response_bytes = json.dumps(response_dict).encode('utf-8')
                 conn.sendall(response_bytes)
 
