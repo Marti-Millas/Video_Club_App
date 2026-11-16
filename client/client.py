@@ -1,7 +1,7 @@
 import asyncio
 import json
 from typing import Optional, Dict, Any
-# Importes 'rich' per fer taules i lletres de colors (més atractiu per l'usuari)
+# Importem 'rich' per fer taules i lletres de colors (més atractiu per l'usuari)
 from rich.console import Console
 from rich.table import Table
 
