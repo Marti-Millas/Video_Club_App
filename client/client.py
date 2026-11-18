@@ -11,34 +11,51 @@ HOST = '127.0.0.1'
 PORT = 65432
 
 def get_client_context():
+    """Prepara la identitat del client per presentar-la al servidor."""
+    # SERVER_AUTH: Comprova que el servidor és autèntic usant la CA
     context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH, cafile="certs/CA_cert.pem")
+    
+    # Carreguem el DNI del client i la seva clau
     context.load_cert_chain(certfile="certs/client1_cert.pem", keyfile="certs/client1_key.pem")
-    context.check_hostname = False
+    
+    context.check_hostname = False # Treballem en local, evitem errors de domini
     return context
 
 async def send_request(action: str, data: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
     if data is None:
         data = {}
     
+    # 1. Preparem el cos (body) en bytes
     request_dict = {"action": action, "data": data}
     body_bytes = json.dumps(request_dict).encode('utf-8')
     
+    # 2. Calculem l'empremta SHA-256
     body_hash = hashlib.sha256(body_bytes).hexdigest()
+    
+    # 3. Creem l'encapçalament amb la mida, el hash i el salt de línia
     header_bytes = json.dumps({"length": len(body_bytes), "sha256": body_hash}).encode('utf-8') + b'\n'
 
     try:
         ssl_ctx = get_client_context()
+        
+        # Obrim la connexió creant el túnel xifrat TLS
         reader, writer = await asyncio.open_connection(HOST, PORT, ssl=ssl_ctx)
         
+        # Enviem l'encapçalament i el cos
         writer.write(header_bytes + body_bytes)
         await writer.drain()
         
+        # --- LLEGIR RESPOSTA ---
+        # Llegim el header fins al salt de línia
         header_line = await reader.readuntil(b'\n')
         res_header = json.loads(header_line.decode('utf-8'))
         
+        # Llegim el cos segons els bytes exactes del header
         res_body_bytes = await reader.readexactly(res_header["length"])
         
+        # Comprovem la integritat del hash rebut
         actual_hash = hashlib.sha256(res_body_bytes).hexdigest()
+        
         if actual_hash != res_header["sha256"]:
             console.print("[bold red][!] Alerta: El SHA-256 del servidor no coincideix![/bold red]")
             return None
@@ -59,6 +76,7 @@ async def send_request(action: str, data: Optional[Dict[str, Any]] = None) -> Op
         return None
 
 async def main() -> None:
+    # Aquest menú és el mateix de sempre, no canvia la lògica
     while True:
         console.print("\n[bold cyan]=== VIDEOCLUB (ASYNC TCP + TLS) ===[/bold cyan]")
         print("1. Crear Plataforma")
